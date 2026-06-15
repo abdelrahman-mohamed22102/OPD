@@ -2,10 +2,6 @@
 .env
 .streamlit/secrets.toml
 
-# Sensitive data files — upload directly to Streamlit Cloud or use a private store
-data/OPD_dataset.xlsx
-data/Knowledge_base.xlsx
-
 # Python
 __pycache__/
 *.py[cod]
