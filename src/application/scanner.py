@@ -42,11 +42,13 @@ class PerformanceScanner:
         flags: list[Flag] = []
 
         def add(kpi_id: str, kpi: str, scenario: str, severity: Severity,
-                actual: float, reference: float, impact: float, detail: str) -> None:
+                actual: float, reference: float, impact: float, detail: str,
+                value_format: str = "auto") -> None:
             flags.append(Flag(kpi_id=kpi_id, kpi_name=kpi, scenario=scenario,
                               severity=severity, scope=scope, actual=actual,
                               reference=reference, variance=actual - reference,
-                              estimated_impact_egp=max(impact, 0.0), detail=detail))
+                              estimated_impact_egp=max(impact, 0.0), detail=detail,
+                              value_format=value_format))
 
         # ── 1. Revenue below target (playbook: <90% → Critical) ──────────────
         tgt_rev = cur.get("Target Revenue", 0.0)
@@ -81,7 +83,7 @@ class PerformanceScanner:
         if act_rev > 0 and leak / act_rev > self.t.leakage_pct_of_revenue_critical:
             add("OPD_KPI_006", "Total Leakage Revenue Losses", "Leakage losses increasing",
                 Severity.CRITICAL, leak,
-                act_rev * self.t.leakage_pct_of_revenue_critical, leak,
+                float("nan"), leak,
                 f"Leakage is {leak / act_rev:.1%} of revenue "
                 f"(threshold {self.t.leakage_pct_of_revenue_critical:.0%}).")
 
@@ -90,7 +92,7 @@ class PerformanceScanner:
         if act_rev > 0 and canc / act_rev > self.t.cancellation_loss_pct_critical:
             add("OPD_KPI_023", "Total Losses Revenue_Cancellation_Modification",
                 "Revenue losses increasing", Severity.CRITICAL, canc,
-                act_rev * self.t.cancellation_loss_pct_critical, canc,
+                float("nan"), canc,
                 f"Cancellation/modification losses are {canc / act_rev:.1%} of revenue "
                 f"(threshold {self.t.cancellation_loss_pct_critical:.0%}).")
 
@@ -106,11 +108,13 @@ class PerformanceScanner:
         cpc_base = self._trailing_mean("Charge per case", year, month, bu, doctor)
         if cpc_base and charge < cpc_base * (1 - self.t.charge_per_case_drop):
             add("OPD_KPI_010", "Charge per case", "Avg revenue per case low",
-                Severity.HIGH, charge, cpc_base, (cpc_base - charge) * act_cases,
+                Severity.HIGH, charge, float("nan"), (cpc_base - charge) * act_cases,
                 f"Charge/case EGP {charge:,.0f} vs trailing avg EGP {cpc_base:,.0f}.")
 
         # BU-level-only rules (noisy / inapplicable per doctor)
         if not doctor_level:
+            planned = cur.get("No. Planned booking Slots", 0.0)
+
             # ── 3b. Cases sudden MoM drop (playbook: Drop > 15% → Critical) ───
             prev_cases = prev.get("No. Cases", 0.0)
             if prev_cases > 0 and act_cases > 0:
@@ -126,7 +130,7 @@ class PerformanceScanner:
             prev_leak = prev.get("Total Leakage Revenue Losses", 0.0)
             if prev_leak > 0 and leak > prev_leak * (1 + self.t.leakage_mom_increase_high):
                 add("OPD_KPI_006", "Total Leakage Revenue Losses", "Missed services increasing",
-                    Severity.HIGH, leak, prev_leak, leak - prev_leak,
+                    Severity.HIGH, leak, float("nan"), leak - prev_leak,
                     f"Leakage rose {(leak / prev_leak - 1):+.1%} MoM "
                     f"(threshold +{self.t.leakage_mom_increase_high:.0%}).")
 
@@ -143,30 +147,30 @@ class PerformanceScanner:
                     f"(gap {dcr_t - dcr:.1%} > threshold {self.t.digital_cr_gap:.0%}).")
 
             # ── 9b. Digital leads high but bookings low (CR < Planned CR → Critical)
-            if dcr_t > 0 and dcr > 0 and dcr < dcr_t:
-                _bk = cur.get("No. Booking", 0.0)
-                if _bk > 0:
-                    # Implied leads = bookings / actual_CR; shortfall = leads × CR_gap × charge
-                    _implied_leads = _bk / dcr
-                    add("OPD_KPI_011", "No. Booking", "Digital leads high but bookings low",
-                        Severity.CRITICAL, dcr, dcr_t,
-                        _implied_leads * (dcr_t - dcr) * charge,
-                        f"Actual CR {dcr:.1%} below planned CR {dcr_t:.1%}; "
-                        f"~{_implied_leads:.0f} leads but only {_bk:.0f} bookings. "
-                        f"Analyze funnel leakage.")
+            # if dcr_t > 0 and dcr > 0 and dcr < dcr_t:
+            #     _bk = cur.get("No. Booking", 0.0)
+            #     if _bk > 0:
+            #         # Implied leads = bookings / actual_CR; shortfall = leads × CR_gap × charge
+            #         _implied_leads = _bk / dcr
+            #         add("OPD_KPI_011", "No. Booking", "Digital leads high but bookings low",
+            #             Severity.CRITICAL, _bk, planned,
+            #             _implied_leads * (dcr_t - dcr) * charge,
+            #             f"Actual CR {dcr:.1%} below planned CR {dcr_t:.1%}; "
+            #             f"~{_implied_leads:.0f} leads but only {_bk:.0f} bookings. "
+            #             f"Analyze funnel leakage.")
 
             # ── 10. COE compliance (playbook: <80% → Critical) ─────────────────
             coe = cur.get("Actual COE Compliance %", 0.0)
             if coe and coe < self.t.coe_compliance_low:
                 add("OPD_KPI_018", "Actual COE Compliance %", "COE compliance low",
-                    Severity.CRITICAL, coe, self.t.coe_compliance_low, 0.0,
+                    Severity.CRITICAL, coe, float("nan"), 0.0,
                     f"COE compliance {coe:.1%} below critical threshold {self.t.coe_compliance_low:.0%}.")
 
             # ── 10b. COE referrals declining (playbook: missed increase >15% → High)
             prev_coe = prev.get("Actual COE Compliance %", 0.0)
             if coe and prev_coe > 0 and coe < prev_coe * (1 - self.t.coe_compliance_drop_high):
                 add("OPD_KPI_018", "Actual COE Compliance %", "Missed COE referrals increasing",
-                    Severity.HIGH, coe, prev_coe, 0.0,
+                    Severity.HIGH, coe, float("nan"), 0.0,
                     f"COE compliance dropped {(coe / prev_coe - 1):+.1%} MoM "
                     f"(threshold -{self.t.coe_compliance_drop_high:.0%}).")
 
@@ -185,14 +189,14 @@ class PerformanceScanner:
             if ret and ret < self.t.patient_retention_low:
                 # KB formula: Returning Patients ÷ Total Patients → shortfall × avg revenue
                 add("OPD_KPI_016", "Patient Retention %", "Retention below target",
-                    Severity.HIGH, ret, self.t.patient_retention_low,
+                    Severity.HIGH, ret, float("nan"),
                     act_cases * max(self.t.patient_retention_low - ret, 0.0) * charge,
                     f"Patient retention {ret:.1%} below threshold {self.t.patient_retention_low:.0%}.")
 
             # ── 12b. No-show affecting retention (playbook: No-show >25% → Medium) ─
             if ns > self.t.no_show_rate_critical:
                 add("OPD_KPI_016", "Patient Retention %", "No-show affecting retention",
-                    Severity.MEDIUM, ns, self.t.no_show_rate_critical,
+                    Severity.MEDIUM, ns, float("nan"),
                     act_cases * ns * charge,
                     f"No-show rate {ns:.1%} exceeds {self.t.no_show_rate_critical:.0%}; "
                     f"high no-shows likely reducing patient retention. "
@@ -220,7 +224,7 @@ class PerformanceScanner:
             if prev_fuv > 0 and fuv < prev_fuv * (1 - self.t.follow_up_drop):
                 # KB formula: Follow-up Visits × Avg Revenue → lost visits × charge
                 add("OPD_KPI_013", "No. follow-up visits", "Follow-up visits declining",
-                    Severity.MEDIUM, fuv, prev_fuv,
+                    Severity.MEDIUM, fuv, float("nan"),
                     (prev_fuv - fuv) * charge,
                     f"Follow-up visits dropped {(fuv / prev_fuv - 1):+.1%} MoM "
                     f"(threshold -{self.t.follow_up_drop:.0%}).")
@@ -231,13 +235,12 @@ class PerformanceScanner:
                 if fuv_ratio < self.t.follow_up_compliance_low:
                     # KB formula: Follow-up Visits × Avg Revenue → missing visits × charge
                     add("OPD_KPI_013", "No. follow-up visits", "Low doctor follow-up engagement",
-                        Severity.HIGH, fuv_ratio, self.t.follow_up_compliance_low,
+                        Severity.HIGH, fuv, float("nan"),
                         max(act_cases * self.t.follow_up_compliance_low - fuv, 0.0) * charge,
                         f"Follow-up visits are {fuv_ratio:.1%} of cases "
                         f"(threshold {self.t.follow_up_compliance_low:.0%}).")
 
             # ── 15. Booking slot utilisation (playbook: <70% → Medium) ─────────
-            planned = cur.get("No. Planned booking Slots", 0.0)
             if planned > 0 and act_cases > 0:
                 utilisation = act_cases / planned
                 if utilisation < self.t.slot_utilization_low:
@@ -246,7 +249,8 @@ class PerformanceScanner:
                         Severity.MEDIUM, utilisation, self.t.slot_utilization_low,
                         max(planned * self.t.slot_utilization_low - act_cases, 0.0) * charge,
                         f"Slot utilization {utilisation:.1%} (cases/planned) below "
-                        f"threshold {self.t.slot_utilization_low:.0%}.")
+                        f"threshold {self.t.slot_utilization_low:.0%}.",
+                        "pct")
 
             # ── 15b. Booking below expected (playbook: <85% of planned slots → High)
             _bookings = cur.get("No. Booking", 0.0)
@@ -275,7 +279,7 @@ class PerformanceScanner:
             prev_missed = prev.get("No. Missed Opportunity", 0.0)
             if prev_missed > 0 and missed > prev_missed * (1 + self.t.missed_opportunity_increase):
                 add("OPD_KPI_021", "No. Missed Opportunity", "Missed opportunities increasing",
-                    Severity.HIGH, missed, prev_missed, missed * charge,
+                    Severity.HIGH, missed, float("nan"), missed * charge,
                     f"Missed opportunities rose {(missed / prev_missed - 1):+.1%} MoM "
                     f"(threshold +{self.t.missed_opportunity_increase:.0%}).")
 
@@ -283,7 +287,7 @@ class PerformanceScanner:
             cancelled = cur.get("No. Cancelled Clinics", 0.0)
             if planned > 0 and cancelled / planned > self.t.cancelled_clinics_pct:
                 add("OPD_KPI_022", "No. Cancelled Clinics", "Clinic cancellations increasing",
-                    Severity.HIGH, cancelled, planned * self.t.cancelled_clinics_pct,
+                    Severity.HIGH, cancelled, float("nan"),
                     cancelled * charge,
                     f"Cancelled clinics {cancelled:.0f} = {cancelled / planned:.1%} of planned "
                     f"slots (threshold {self.t.cancelled_clinics_pct:.0%}).")
@@ -291,7 +295,7 @@ class PerformanceScanner:
             # ── 17b. High revenue impact from cancellations (Revenue loss > threshold → Critical)
             if act_rev > 0 and canc > 0 and canc / act_rev > self.t.cancellation_loss_pct_critical:
                 add("OPD_KPI_022", "No. Cancelled Clinics", "High revenue impact from cancellations",
-                    Severity.CRITICAL, cancelled, act_rev * self.t.cancellation_loss_pct_critical,
+                    Severity.CRITICAL, cancelled, float("nan"),
                     canc,
                     f"Cancellation losses EGP {canc:,.0f} ({canc / act_rev:.1%} of revenue) exceed "
                     f"threshold {self.t.cancellation_loss_pct_critical:.0%}. "
@@ -312,12 +316,12 @@ class PerformanceScanner:
             pms = cur.get("Doctor PMS %", 0.0)
             if pms and pms < self.t.doctor_pms_high:
                 add("OPD_KPI_007", "Doctor PMS %", "Compliance metrics low",
-                    Severity.HIGH, pms, self.t.doctor_pms_high, 0.0,
+                    Severity.HIGH, pms, float("nan"), 0.0,
                     f"Doctor PMS {pms:.1%} below compliance threshold "
                     f"{self.t.doctor_pms_high:.0%}.")
             elif pms and pms < self.t.doctor_pms_medium:
                 add("OPD_KPI_007", "Doctor PMS %", "PMS score below target",
-                    Severity.MEDIUM, pms, self.t.doctor_pms_medium, 0.0,
+                    Severity.MEDIUM, pms, float("nan"), 0.0,
                     f"Doctor PMS {pms:.1%} below target {self.t.doctor_pms_medium:.0%}.")
 
         return flags
