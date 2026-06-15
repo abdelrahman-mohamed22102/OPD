@@ -57,8 +57,8 @@ class GroqClient:
         calls = []
 
         # Pass 1: complete calls with closing </function> tag
-        # Groq uses several separators between name and JSON: comma, equals, paren, or >
-        for m in re.finditer(r'<function=(\w+)[,=(>]\(?(\{.*?\})\)?\s*</function>',
+        # Groq uses several separators between name and JSON: comma, equals, paren, > or none.
+        for m in re.finditer(r'<function=(\w+)[,=(>]?\(?(\{.*?\})\)?\s*</function>',
                               exc_str, re.DOTALL):
             try:
                 calls.append((m.group(1), json.loads(m.group(2))))
@@ -70,7 +70,7 @@ class GroqClient:
 
         # Pass 2: truncated calls — no closing tag, JSON may be cut off mid-stream.
         # Extract everything from the opening { to end of string and try to close it.
-        for m in re.finditer(r'<function=(\w+)[,=(>]\(?(\{[^<]*)', exc_str, re.DOTALL):
+        for m in re.finditer(r'<function=(\w+)[,=(>]?\(?(\{[^<]*)', exc_str, re.DOTALL):
             fn_name = m.group(1)
             partial = m.group(2).strip()
             # Remove trailing incomplete token (e.g. trailing comma or partial key)
