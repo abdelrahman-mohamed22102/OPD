@@ -28,6 +28,24 @@ SEVERITY_COLORS = {"Critical": "#A32D2D", "High": "#BA7517",
                    "Medium": "#185FA5", "Low": "#5F5E5A"}
 
 
+def _fmt_flag_val(v: float, fmt: str, kpi: str) -> str:
+    """Format a flag's actual/reference value for display.
+
+    auto heuristic: "%" in KPI name → pct; starts with "No." → count; else money.
+    NaN reference means no comparison target — displayed as a dash.
+    """
+    import math
+    if math.isnan(v):
+        return "—"
+    if fmt == "auto":
+        fmt = "pct" if "%" in kpi else ("count" if kpi.startswith("No.") else "money")
+    if fmt == "pct":
+        return f"{v:.1%}"
+    if fmt == "count":
+        return f"{v:,.0f}"
+    return f"EGP {v:,.0f}"
+
+
 # --------------------------------------------------------------------- setup
 @st.cache_resource(show_spinner="Loading dataset and knowledge base...")
 def get_orchestrator_base() -> Orchestrator:
@@ -114,7 +132,8 @@ with tab_scan:
         df = pd.DataFrame([{
             "Severity": f.severity.value, "KPI": f.kpi_name, "Scenario": f.scenario,
             "BU": f.scope.get("bu") or "ALL", "Doctor": f.scope.get("doctor") or "—",
-            "Actual": round(f.actual, 2), "Reference": round(f.reference, 2),
+            "Actual": _fmt_flag_val(f.actual, f.value_format, f.kpi_name),
+            "Reference": _fmt_flag_val(f.reference, f.value_format, f.kpi_name),
             "Est. impact (EGP)": round(f.estimated_impact_egp, 0), "Detail": f.detail,
         } for f in flags])
         st.dataframe(df, use_container_width=True, hide_index=True,

@@ -94,6 +94,7 @@ class Flag:
     variance: float
     estimated_impact_egp: float
     detail: str
+    value_format: str = "auto"   # "pct" | "count" | "money" | "auto"
 
     def key(self) -> str:
         bu = self.scope.get("bu") or "ALL"
